@@ -1,0 +1,5 @@
+numpy==1.19.2
+sounddevice==0.4.1
+SoundFile==0.10.3.post1
+matplotlib==3.3.2
+PyQt5==5.15.2
