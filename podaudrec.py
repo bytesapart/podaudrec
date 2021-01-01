@@ -8,11 +8,18 @@ import numpy as np
 import sounddevice as sd
 import soundfile as sf
 import tempfile
+import ctypes
+import glob
+import shutil
+import os
+import getpass
 
 from PyQt5 import QtCore, QtWidgets, QtGui
 from PyQt5 import uic
 from PyQt5.QtCore import pyqtSlot
 from PyQt5.QtMultimedia import QAudioDeviceInfo, QAudio
+from PyQt5.QtWidgets import QMessageBox
+from PyQt5.QtWidgets import QSystemTrayIcon
 
 
 matplotlib.use('Qt5Agg')
@@ -31,10 +38,16 @@ class LivePlotApp(QtWidgets.QMainWindow):
     def __init__(self):
         QtWidgets.QMainWindow.__init__(self)
         self.ui = uic.loadUi('main.ui', self)
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("podaudrec")
         self.resize(888, 600)
-        icon = QtGui.QIcon()
-        icon.addPixmap(QtGui.QPixmap("PyShine.png"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
+        icon = QtGui.QIcon("logo/cassette-2672633.png")
+        icon.addPixmap(QtGui.QPixmap("logo/cassette-2672633.png"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
         self.setWindowIcon(icon)
+        tray = QSystemTrayIcon()
+        tray.setIcon(icon)
+        tray.setVisible(True)
+        self.setWindowTitle("Podaudrec")
+
         self.threadpool = QtCore.QThreadPool()
         self.threadpool.setMaxThreadCount(1)
         self.devices_list = []
@@ -67,18 +80,19 @@ class LivePlotApp(QtWidgets.QMainWindow):
         self.timer.timeout.connect(self.update_plot)
         self.timer.start()
         self.data = [0]
-        self.lineEdit.textChanged['QString'].connect(self.update_window_length)
-        self.lineEdit_2.textChanged['QString'].connect(self.update_sample_rate)
-        self.lineEdit_3.textChanged['QString'].connect(self.update_down_sample)
-        self.lineEdit_4.textChanged['QString'].connect(self.update_interval)
+
+        # Recording Settings
+        self.update_window_length(2000)
+        self.update_sample_rate(44100)
+        self.update_down_sample(1)
+        self.update_interval(30)
+
         self.pushButton.clicked.connect(self.start_worker)
         self.pushButton_2.clicked.connect(self.stop_worker)
+        self.pushButton_3.clicked.connect(self.upload_to_drive)
         self.worker = None
         self.go_on = False
-        filename = tempfile.mktemp(
-            prefix='podaudrec_', suffix='.wav', dir='')
-        self.sound_file = sf.SoundFile(filename, mode='x', samplerate=int(self.samplerate),
-                                       channels=max(self.channels))
+        self.sound_file = None
 
     def getAudio(self):
         try:
@@ -87,7 +101,13 @@ class LivePlotApp(QtWidgets.QMainWindow):
             def audio_callback(indata, frames, time, status):
                 self.q.put(indata[::self.downsample, [0]])
 
-            stream = sd.InputStream(blocksize=2048, device=self.device, channels=max(self.channels), samplerate=self.samplerate,
+            filename = tempfile.mktemp(
+                prefix='podaudrec_', suffix='.ogg', dir='')
+
+            self.sound_file = sf.SoundFile(filename, mode='x', samplerate=int(self.samplerate),
+                                           channels=min(self.channels))
+
+            stream = sd.InputStream(blocksize=2048, device=self.device, channels=min(self.channels), samplerate=self.samplerate,
                                     callback=audio_callback)
 
             with self.sound_file:
@@ -99,10 +119,6 @@ class LivePlotApp(QtWidgets.QMainWindow):
                             break
 
             self.pushButton.setEnabled(True)
-            self.lineEdit.setEnabled(True)
-            self.lineEdit_2.setEnabled(True)
-            self.lineEdit_3.setEnabled(True)
-            self.lineEdit_4.setEnabled(True)
             self.comboBox.setEnabled(True)
 
         except Exception as e:
@@ -111,10 +127,6 @@ class LivePlotApp(QtWidgets.QMainWindow):
 
     def start_worker(self):
 
-        self.lineEdit.setEnabled(False)
-        self.lineEdit_2.setEnabled(False)
-        self.lineEdit_3.setEnabled(False)
-        self.lineEdit_4.setEnabled(False)
         self.comboBox.setEnabled(False)
         self.pushButton.setEnabled(False)
         self.canvas.axes.clear()
@@ -194,6 +206,37 @@ class LivePlotApp(QtWidgets.QMainWindow):
         except Exception as e:
             print("Error:", e)
             pass
+
+    @staticmethod
+    def upload_to_drive(self):
+        msg = QMessageBox()
+        drive = tempfile.gettempdir()
+
+        try:
+            username = getpass.getuser()
+            if not os.path.isdir(os.path.join(drive, username)):
+                os.mkdir(os.path.join(drive, username))
+
+            dest_dir = os.path.join(drive, username)
+            for audio_rec in glob.glob(os.path.join(os.getcwd(), 'podaudrec_*')):
+                shutil.copy(audio_rec, dest_dir)
+
+            msg.setIcon(QMessageBox.Information)
+            msg.setText("Success")
+            msg.setInformativeText('Upload to Drive successful')
+            msg.setWindowTitle("Upload to Drive")
+            msg.exec_()
+            
+        except Exception:
+            msg.setIcon(QMessageBox.Critical)
+            msg.setText("Failure")
+            msg.setInformativeText('Upload to Drive failed, please contact Administrator to check if you have '
+                                   'permissions to upload to drive')
+            msg.setWindowTitle("Upload to Drive")
+            msg.exec_()
+
+    def closeEvent(self, event):
+        self.stop_worker()
 
 
 class Worker(QtCore.QRunnable):
