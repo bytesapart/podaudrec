@@ -226,7 +226,7 @@ class LivePlotApp(QtWidgets.QMainWindow):
             msg.setInformativeText('Upload to Drive successful')
             msg.setWindowTitle("Upload to Drive")
             msg.exec_()
-            
+
         except Exception:
             msg.setIcon(QMessageBox.Critical)
             msg.setText("Failure")
